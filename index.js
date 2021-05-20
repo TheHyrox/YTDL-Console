@@ -77,7 +77,7 @@ if (!fs.existsSync(dir)){
 
 var titleverify = selected.title;
 
-if( titleverify.indexOf(':') >= 0  || titleverify.indexOf('/') >= 0 || titleverify.indexOf('\ ') >= 0  ){
+if( titleverify.indexOf(':') >= 0  || titleverify.indexOf('/') >= 0 || titleverify.indexOf('\\') >= 0  ){
     await ytdl(selected.link, {"quality": `highest`, "format":`mp4`}).pipe(fs.createWriteStream(`./Download/Invalid Character` + ".mp4"));
 }else{
 await ytdl(selected.link, {"quality": `highest`, "format":`mp4`}).pipe(fs.createWriteStream(`./Download/${selected.title}` + ".mp4"));
