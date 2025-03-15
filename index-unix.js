@@ -104,10 +104,26 @@ async function videoDownloader(result) {
         }
 
         //Download the video
-        const audio = ytdl(result.link, { quality: 'highestaudio' }).on('progress', (_, downloaded, total) => {
+        const audio = ytdl(result.link, { 
+            quality: 'highestaudio',
+            filter: 'audioonly'
+        });
+
+        const video = ytdl(result.link, { 
+            quality: qualityLinks[choice].itag,
+            filter: 'videoonly' 
+        });
+
+        audio.on('error', error => {
+            console.error('Audio stream error:', error);
+        });
+        video.on('error', error => {
+            console.error('Video stream error:', error);
+        });
+        audio.on('progress', (_, downloaded, total) => {
             tracker.audio = { downloaded, total };
         });
-        const video = ytdl(result.link, { quality: qualityLinks[choice].itag }).on('progress', (_, downloaded, total) => {
+        video.on('progress', (_, downloaded, total) => {
             tracker.video = { downloaded, total };
         });
     
@@ -130,24 +146,42 @@ async function videoDownloader(result) {
         };
     
         const ffmpegProcess = spawn(FFMPEG_PATH, [
-            '-loglevel', '8', '-hide_banner',
+            '-loglevel', 'warning',
+            '-hide_banner',
             '-progress', 'pipe:3',
             '-i', 'pipe:4',
             '-i', 'pipe:5',
             '-map', '0:a',
             '-map', '1:v',
             '-c:v', 'copy',
-            `./Download/Video/${result.title.replace(/[/\\?%*:|"<>]/g, '')}.mkv`, // Sanitize filename
+            '-c:a', 'aac',
+            '-strict', 'experimental',
+            '-movflags', '+faststart',
+            `./Download/Video/${result.title.replace(/[/\\?%*:|"<>]/g, '')}.mp4`, // Changed to .mp4
         ], {
             windowsHide: true,
             stdio: [
                 'inherit', 'inherit', 'inherit', 'pipe', 'pipe', 'pipe',
             ],
         });
-        ffmpegProcess.on('close', () => {
-            process.stdout.write('\n\n\n\n');
-            clearInterval(progressbarHandle);
+        ffmpegProcess.on('error', error => {
+            console.error('FFmpeg process error:', error);
         });
+
+        if (ffmpegProcess.stderr) {
+            ffmpegProcess.stderr.on('data', data => {
+                console.error('FFmpeg stderr:', data.toString());
+            });
+        }
+
+        ffmpegProcess.on('close', code => {
+            if (code !== 0) {
+                console.error(`FFmpeg process exited with code ${code}`);
+            } else {
+                console.log('\nDownload completed successfully!');
+            }
+        });
+        
         ffmpegProcess.stdio[3].on('data', chunk => {
             if (!progressbarHandle) progressbarHandle = setInterval(showProgress, progressbarInterval);
             const lines = chunk.toString().trim().split('\n');
@@ -158,8 +192,13 @@ async function videoDownloader(result) {
             }
             tracker.merged = args;
         });
-        audio.pipe(ffmpegProcess.stdio[4]);
-        video.pipe(ffmpegProcess.stdio[5]);
+        audio.pipe(ffmpegProcess.stdio[4]).on('error', (error) => {
+            console.error('Error piping audio:', error);
+        });
+
+        video.pipe(ffmpegProcess.stdio[5]).on('error', (error) => {
+            console.error('Error piping video:', error);
+        });
     
         io.write(`The video is downloading, check the "Download/Video" folder when finished`);
         io.write(`Video information:`);
@@ -169,6 +208,7 @@ async function videoDownloader(result) {
         io.write(`Category: ${info.videoDetails.category}`);
     } catch (error) {
         console.error('Error downloading video:', error);
+        throw error;
     }
 }
 
