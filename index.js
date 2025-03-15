@@ -1,161 +1,186 @@
-/*.##....##.########.########..##...........######...#######..##....##..######...#######..##.......########
-  ..##..##.....##....##.....##.##..........##....##.##.....##.###...##.##....##.##.....##.##.......##......
-  ...####......##....##.....##.##..........##.......##.....##.####..##.##.......##.....##.##.......##......
-  ....##.......##....##.....##.##..........##.......##.....##.##.##.##..######..##.....##.##.......######..
-  ....##.......##....##.....##.##..........##.......##.....##.##..####.......##.##.....##.##.......##......
-  ....##.......##....##.....##.##..........##....##.##.....##.##...###.##....##.##.....##.##.......##......
-  ....##.......##....########..########.....######...#######..##....##..######...#######..########.########*/
+import io from 'console-read-write';
+import ytsearch from 'youtube-search';
+import dotenv from 'dotenv';
+import google from 'googleapis';
+import ytdl from '@distube/ytdl-core';
+import fs from 'fs';
+import { spawn } from 'child_process';
+import readline from 'readline';
+import request from 'request';
 
-const io = require('console-read-write')
-const ytdl = require('ytdl-core')
-const ytsearch = require('youtube-search');
-const { config } = require("dotenv");
-const fs = require("fs");
-const ffmpeg = require('ffmpeg-static');
-const cp = require('child_process');
-const readline = require('readline');
-const { Console } = require('console');
+const FFMPEG_PATH = '/opt/homebrew/bin/ffmpeg'; 
 
-request = require('request');
+// Load environment variables
+dotenv.config();
 
-config({
-    path: __dirname + "/env.env"
-});
+// Initialize the YouTube API client
+const oauth2Client = new google.Auth.AuthClient(
+    process.env.CLIENT_ID,
+    process.env.CLIENT_SECRET,
+    'http://localhost'
+);
 
-const opts = {
+//Options for the search (10 Videos, and API key)
+const options = {
     maxResults: 10,
     key: process.env.YTAPIKEY,
-    type: 'video'
+    type: 'video',
+    auth: oauth2Client
 };
 
+//Initialiaze the tracker for download
 const tracker = {
-    start: Date.now(),
-    audio: { downloaded: 0, total: Infinity },
-    video: { downloaded: 0, total: Infinity },
-    merged: { frame: 0, speed: '0x', fps: 0 },
+    audio: { downloaded: 0, total: 0 },
+    video: { downloaded: 0, total: 0 },
+    merged: { frame: 0, speed: '0x', fps: 0 }
 };
 
+
+//Create the folders if not exists
 var dir = './Download';
 var dirvideo = './Download/Video';
 var diraudio = './Download/Audio';
-var dirminia = './Download/Minia'
-var dirmerg = './Download/Merg'
+var dirthumb = './Download/Thumbnail'
+var dirmerg = './Download/Merge'
 
 if (!fs.existsSync(dir)){fs.mkdirSync(dir)}
 if (!fs.existsSync(dirvideo)){fs.mkdirSync(dirvideo)}
 if (!fs.existsSync(diraudio)){fs.mkdirSync(diraudio)}
-if (!fs.existsSync(dirminia)){fs.mkdirSync(dirminia)}
+if (!fs.existsSync(dirthumb)){fs.mkdirSync(dirthumb)}
 if (!fs.existsSync(dirmerg)){fs.mkdirSync(dirmerg)}
-function sectohms(timesec){
-    var min = 0;
-    var heures = 0;
-    while(timesec > 60) {
-        if(timesec > 60){
-            min += 1;
-            timesec = (timesec - 60)
-            if(min >= 60){
-                heures += 1;
-                min = min - 60
-        }
-    }
-}
-    return `${heures} hours(s) : ${min} minute(s) : ${timesec} second(s)`
+
+// Add this function near your other utility functions
+function sectohms(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-async function miniadl(url, path){
-    request(url).pipe(fs.createWriteStream(path));
-};
+//Asker for video quality and downloader
+async function videoDownloader(result) {
+    try {
+        const info = await ytdl.getInfo(result.link);
+        let qualityLinks = [];
 
-async function main() {
-
-const htmlUnescapes = {
-    '&amp;': '&',
-    '&lt;': '<',    
-    '&gt;': '>',    
-    '&quot;': '"',    
-    '&#39;': "'"        
-};
-const reEscapedHtml = /&(?:amp|lt|gt|quot|#(0+)?39);/g;
-
-let search = false
-while (!search) {
-    io.write(`Type a video's title, or a video's ID or a video's link !`);
-    search = await io.read()
-}
-
-io.write("Researching for " + `"${search}"` + " video . . .")
-let resultst = await ytsearch(search, opts);
-let youtubeResults = resultst.results;
-let i  = 0;
-let titles = youtubeResults.map(result => {
-    i++;
-    io.write(`${i}. ` + `${result.title} | By : ${result.channelTitle}`);
-})
-
-io.write("\n")
-io.write("For cancel selection write 'cancel'")
-numbersearch = await io.read();
-
-if(numbersearch == "Cancel" || numbersearch == "cancel"){
-    return io.write("Process canceled")
-}
-
-if (numbersearch > 10 || isNaN(numbersearch) || numbersearch <= 0){
-    return io.write("You should write a valid number between 1 and 10")
-}
-
-let selected = youtubeResults[numbersearch - 1];
-let infos = await ytdl.getInfo(selected.link);
-
-var titleverify = selected.title;
-var noparr = [`:`, `/`, `\\`, `*`, `?`, `"`, `|`, `<`, `>`]
-
-ObjTitle = titleverify.replace(/[/\\?%*:|"<>]/g, '').replace(reEscapedHtml, entity => htmlUnescapes[entity] || "'");
-
-
-var ivdtl = infos.videoDetails.thumbnails.length
-var smurl = infos.videoDetails.thumbnails[ivdtl - 1].url
-
-io.write("What you want to do ?")
-io.write("1 - Download video\n2 - Download audio (doesn't work with Foobar2000)\n3 - Download Miniature")
-choice = await io.read()
-
-
-
-switch (choice) {
-    case '1':
-
-        var QualityLab = [];
-        FiltredFormat = ytdl.filterFormats(infos.formats, 'videoonly'); 
-        var y = 0;
-        while (y < FiltredFormat.length){
-            if(QualityLab.indexOf(FiltredFormat[y].qualityLabel) != -1) {
-                y++;
-            }else{
-                QualityLab.push(FiltredFormat[y].qualityLabel)
-                y++;
+        //For each format if the quality is not already in the array, add it and store the link too
+        for (let i = 0; i < info.formats.length; i++) {
+            if (info.formats[i].qualityLabel !== null || info.formats[i].qualityLabel !== undefined) {
+                if (info.formats[i].qualityLabel && !qualityLinks.some(link => link.quality === info.formats[i].qualityLabel)) {
+                    qualityLinks.push({
+                        quality: info.formats[i].qualityLabel,
+                        url: info.formats[i].url,
+                        itag: info.formats[i].itag
+                    });
+                }
             }
         }
-        io.write("Which quality you want ?")
-        var z = 0;
-        while (z < QualityLab.length) {
-            io.write(`[${z+1}] - ${QualityLab[z]}`)
-            z++;
+
+        //Sort the array by quality
+        qualityLinks.sort((a, b) => {
+            const qualityA = parseInt(a.quality) || 0;
+            const qualityB = parseInt(b.quality) || 0;
+            return qualityB - qualityA;
+        });
+
+        //Display the qualities available
+        qualityLinks.forEach((quality, index) => {
+            console.log(`${index}. Quality: ${quality.quality}`);
+        });
+
+        let choice = '';
+        while (choice === '') {
+            io.write(`Type the number of the quality you want to download (or 'cancel' to cancel)`);
+            choice = await io.read();
+
+            if(choice === "Cancel" || choice === "cancel"){
+                io.write("Process canceled");
+                return;
+            } else if (choice >= qualityLinks.length || isNaN(choice) || choice < 0){
+                io.write(`You should write a valid number between 0 and ${qualityLinks.length - 1}`);
+                choice = '';
+            }
         }
 
-
-        QualityChoice = await io.read()
-        ItagSearch = QualityChoice - 1
-        YTDLQuality = FiltredFormat[ItagSearch].itag
-
-
-        const audio = ytdl(selected.link, { quality: 'highestaudio' })
-        .on('progress', (_, downloaded, total) => {
-        tracker.audio = { downloaded, total };
+        //Download the video
+        const audio = ytdl(result.link, { quality: 'highestaudio' }).on('progress', (_, downloaded, total) => {
+            tracker.audio = { downloaded, total };
         });
-        const video = ytdl(selected.link, { quality: `${YTDLQuality}` })
-        .on('progress', (_, downloaded, total) => {
-        tracker.video = { downloaded, total };
+        const video = ytdl(result.link, { quality: qualityLinks[choice].itag }).on('progress', (_, downloaded, total) => {
+            tracker.video = { downloaded, total };
+        });
+    
+        let progressbarHandle = null;
+        const progressbarInterval = 1000;
+        const showProgress = () => {
+            readline.cursorTo(process.stdout, 0);
+            const toMB = i => (i / 1024 / 1024).toFixed(2);
+    
+            process.stdout.write(`Audio  | ${(tracker.audio.downloaded / tracker.audio.total * 100).toFixed(2)}% processed `);
+            process.stdout.write(`(${toMB(tracker.audio.downloaded)}MB of ${toMB(tracker.audio.total)}MB).${' '.repeat(10)}\n`);
+    
+            process.stdout.write(`Video  | ${(tracker.video.downloaded / tracker.video.total * 100).toFixed(2)}% processed `);
+            process.stdout.write(`(${toMB(tracker.video.downloaded)}MB of ${toMB(tracker.video.total)}MB).${' '.repeat(10)}\n`);
+
+            process.stdout.write(`Merged | processing frame ${tracker.merged.frame} `);
+            process.stdout.write(`(at ${tracker.merged.fps} fps => ${tracker.merged.speed}).${' '.repeat(10)}\n`)
+    
+            readline.moveCursor(process.stdout, 0, -3);
+        };
+    
+        const ffmpegProcess = spawn(FFMPEG_PATH, [
+            '-loglevel', '8', '-hide_banner',
+            '-progress', 'pipe:3',
+            '-i', 'pipe:4',
+            '-i', 'pipe:5',
+            '-map', '0:a',
+            '-map', '1:v',
+            '-c:v', 'copy',
+            `./Download/Video/${result.title.replace(/[/\\?%*:|"<>]/g, '')}.mkv`, // Sanitize filename
+        ], {
+            windowsHide: true,
+            stdio: [
+                'inherit', 'inherit', 'inherit', 'pipe', 'pipe', 'pipe',
+            ],
+        });
+        ffmpegProcess.on('close', () => {
+            process.stdout.write('\n\n\n\n');
+            clearInterval(progressbarHandle);
+        });
+        ffmpegProcess.stdio[3].on('data', chunk => {
+            if (!progressbarHandle) progressbarHandle = setInterval(showProgress, progressbarInterval);
+            const lines = chunk.toString().trim().split('\n');
+            const args = {};
+            for (const l of lines) {
+                const [key, value] = l.split('=');
+                args[key.trim()] = value.trim();
+            }
+            tracker.merged = args;
+        });
+        audio.pipe(ffmpegProcess.stdio[4]);
+        video.pipe(ffmpegProcess.stdio[5]);
+    
+        io.write(`The video is downloading, check the "Download/Video" folder when finished`);
+        io.write(`Video information:`);
+        io.write(`Author: ${info.videoDetails.author.name}`);
+        io.write(`Views: ${info.videoDetails.viewCount}`);
+        io.write(`Duration: ${sectohms(info.videoDetails.lengthSeconds)}`);
+        io.write(`Category: ${info.videoDetails.category}`);
+    } catch (error) {
+        console.error('Error downloading video:', error);
+    }
+}
+
+//Audio downloader
+async function audioDownloader(result) {
+    try {
+        const info = await ytdl.getInfo(result.link);
+
+        const audio = ytdl(result.link, { 
+            quality: 'highestaudio',
+            filter: 'audioonly'
+        }).on('progress', (_, downloaded, total) => {
+            tracker.audio = { downloaded, total };
         });
 
         let progressbarHandle = null;
@@ -166,71 +191,117 @@ switch (choice) {
 
             process.stdout.write(`Audio  | ${(tracker.audio.downloaded / tracker.audio.total * 100).toFixed(2)}% processed `);
             process.stdout.write(`(${toMB(tracker.audio.downloaded)}MB of ${toMB(tracker.audio.total)}MB).${' '.repeat(10)}\n`);
-
-            process.stdout.write(`Video  | ${(tracker.video.downloaded / tracker.video.total * 100).toFixed(2)}% processed `);
-            process.stdout.write(`(${toMB(tracker.video.downloaded)}MB of ${toMB(tracker.video.total)}MB).${' '.repeat(10)}\n`);
-
-            process.stdout.write(`Merged | processing frame ${tracker.merged.frame} `);
-            process.stdout.write(`(at ${tracker.merged.fps} fps => ${tracker.merged.speed}).${' '.repeat(10)}\n`)
-
-            readline.moveCursor(process.stdout, 0, -3);
+            readline.moveCursor(process.stdout, 0, -1);
         };
 
-        const ffmpegProcess = cp.spawn(ffmpeg, [
+        const ffmpegProcess = spawn(FFMPEG_PATH, [
             '-loglevel', '8', '-hide_banner',
             '-progress', 'pipe:3',
             '-i', 'pipe:4',
-            '-i', 'pipe:5',
-            '-map', '0:a',
-            '-map', '1:v',
-            '-c:v', 'copy',
-            `./Download/Video/${ObjTitle}.mkv`,
-          ], {
+            '-acodec', 'libmp3lame',
+            '-ab', '128k',
+            `./Download/Audio/${result.title.replace(/[/\\?%*:|"<>]/g, '')}.wav`, // Changed to .mp3
+        ], {
             windowsHide: true,
             stdio: [
-              'inherit', 'inherit', 'inherit',
-              'pipe', 'pipe', 'pipe',
+                'inherit', 'inherit', 'inherit', 'pipe', 'pipe'
             ],
-          });
-          ffmpegProcess.on('close', () => {
-            process.stdout.write('\n\n\n\n');
-            clearInterval(progressbarHandle);
-          });
-          ffmpegProcess.stdio[3].on('data', chunk => {
+        });
 
+        ffmpegProcess.on('close', () => {
+            process.stdout.write('\n\n');
+            clearInterval(progressbarHandle);
+            io.write('Download completed!');
+        });
+
+        ffmpegProcess.stdio[3].on('data', chunk => {
             if (!progressbarHandle) progressbarHandle = setInterval(showProgress, progressbarInterval);
-          
             const lines = chunk.toString().trim().split('\n');
             const args = {};
             for (const l of lines) {
-              const [key, value] = l.split('=');
-              args[key.trim()] = value.trim();
+                const [key, value] = l.split('=');
+                args[key.trim()] = value.trim();
             }
             tracker.merged = args;
-          });
-          audio.pipe(ffmpegProcess.stdio[4]);
-          video.pipe(ffmpegProcess.stdio[5]);
+        });
 
-        io.write(`The video is dowloading, check on the "Download/Video" folder when the program is finished ^^`)
-        io.write(`Meanwhile download, there is some informations of the video : \n`)
-        io.write(`Author : ${infos.videoDetails.author.name} \nViews : ${infos.videoDetails.viewCount} \nTime : ${sectohms(infos.videoDetails.lengthSeconds)}\nLike/Dislikes : ${infos.videoDetails.likes}/${infos.videoDetails.dislikes} \nCategory : ${infos.videoDetails.category} \n`)
-        
-        
-        break;
-    case '2':
-        await ytdl(selected.link, {"quality": `highestaudio`, "format":`mp3`}).pipe(fs.createWriteStream(`./Download/Audio/${ObjTitle}` + ".mp3"));
-        console.clear();
-        io.write(`The video is dowloading, check on the "Download/Video" folder when the program is finished ^^`)
-        io.write(`Meanwhile download, there is some informations of the video : \n`)
-        io.write(`Author : ${infos.videoDetails.author.name} \nViews : ${infos.videoDetails.viewCount} \nTime : ${sectohms(infos.videoDetails.lengthSeconds)}\nLike/Dislikes : ${infos.videoDetails.likes}/${infos.videoDetails.dislikes} \nCategory : ${infos.videoDetails.category} `)
-        break;
-    case '3':
-        miniadl(smurl, `./Download/Minia/${ObjTitle}.png`)
-        io.write(`The miniature is dowloading, check on the "Download/Minia" folder when the program is finished ^^`)
-        break;
-    default: 
-       return io.write("You should write a valid number");
-  };
+        audio.pipe(ffmpegProcess.stdio[4]);
+
+        io.write(`The audio is downloading, check the "Download/Audio" folder when finished`);
+        io.write(`Video information:`);
+        io.write(`Author: ${info.videoDetails.author.name}`);
+        io.write(`Views: ${info.videoDetails.viewCount}`);
+        io.write(`Duration: ${sectohms(info.videoDetails.lengthSeconds)}`);
+        io.write(`Category: ${info.videoDetails.category}`);
+
+    } catch (error) {
+        console.error('Error downloading audio:', error);
+        throw error;
+    }
+}
+
+//Thumbnail downloader
+async function thumbnailDownloader(result) {
+    request(`https://i3.ytimg.com/vi/${result.id}/maxresdefault.jpg`).pipe(fs.createWriteStream(dirthumb + '/' + `${result.title.replace(/[/\\?%*:|"<>]/g, '')}.jpg`));
+}
+
+//Main function 
+async function main() {
+
+    //Initial Ask & Search
+    let search = ''
+    while (search === '') {
+        io.write(`Type a video's title, or a video's ID or a video's link !`);
+        search = await io.read()
+    }
+    io.write("Researching for " + `"${search}"` + " video . . .")
+
+    //Search for the video and get the results (also down a level in the array)
+    let results = await ytsearch(search, options);
+    results = results.results;
+
+    //Display the results, ask for the choice and re-set the results array
+    results.forEach((result, index) => {
+        console.log(`${index}. ${result.title} | By : ${result.channelTitle}`);
+    });
+
+    let choice = ''
+    while (choice === '') {
+        io.write(`Type the number of the video you want to download (or 'cancel' to cancel)`);
+        choice = await io.read()
+
+        if(choice === "Cancel" || choice === "cancel"){
+            io.write("Process canceled")
+        } else if (choice > 9 || isNaN(choice) || choice < 0){
+            io.write("You should write a valid number between 0 and 9")
+            choice = ''
+        } else if (results[choice].kind != 'youtube#video'){
+            io.write("You can't download a channel or a playlist")
+            choice = ''
+        }
+    }
+
+    results = results[choice];
+
+    //Last choice, what to download
+    io.write("What you want to do ?")
+    io.write("1 - Download video (mkv)\n2 - Download audio (wav)\n3 - Download thumbnail (jpg)")
+    choice = await io.read()
+
+    switch (choice) {
+        case '1':
+            videoDownloader(results);
+            break;
+        case '2':
+            audioDownloader(results)
+            break;
+        case '3':
+            thumbnailDownloader(results)
+        default:
+            io.write("Bye")
+            break;
+    }
+
 }
 
 main();

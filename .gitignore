@@ -6,7 +6,7 @@
 # Node
 node_modules/
 
-#Folders
-Downloads/
-
+#Don't need that
+Download/
 *.test.js
+.DS_Store
